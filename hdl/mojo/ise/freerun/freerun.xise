@@ -19,26 +19,26 @@
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="3"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="7"/>
     </file>
-    <file xil_pn:name="../shared/avr_interface.v" xil_pn:type="FILE_VERILOG">
+    <file xil_pn:name="../mojo-base-project/src/avr_interface.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="3"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="6"/>
     </file>
-    <file xil_pn:name="../shared/cclk_detector.v" xil_pn:type="FILE_VERILOG">
+    <file xil_pn:name="../mojo-base-project/src/cclk_detector.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="4"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="4"/>
     </file>
     <file xil_pn:name="../shared/m68k_tester.ucf" xil_pn:type="FILE_UCF">
       <association xil_pn:name="Implementation" xil_pn:seqID="0"/>
     </file>
-    <file xil_pn:name="../shared/serial_rx.v" xil_pn:type="FILE_VERILOG">
+    <file xil_pn:name="../mojo-base-project/src/serial_rx.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="6"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="3"/>
     </file>
-    <file xil_pn:name="../shared/serial_tx.v" xil_pn:type="FILE_VERILOG">
+    <file xil_pn:name="../mojo-base-project/src/serial_tx.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="7"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="2"/>
     </file>
-    <file xil_pn:name="../shared/spi_slave.v" xil_pn:type="FILE_VERILOG">
+    <file xil_pn:name="../mojo-base-project/src/spi_slave.v" xil_pn:type="FILE_VERILOG">
       <association xil_pn:name="BehavioralSimulation" xil_pn:seqID="8"/>
       <association xil_pn:name="Implementation" xil_pn:seqID="1"/>
     </file>
