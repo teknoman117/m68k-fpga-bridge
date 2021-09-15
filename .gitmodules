@@ -1,0 +1,3 @@
+[submodule "kicad/M68K-BREAKOUT"]
+	path = kicad/M68K-BREAKOUT
+	url = ../M68K-BREAKOUT.git
