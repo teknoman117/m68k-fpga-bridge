@@ -1,0 +1,62 @@
+I managed to find some real ones (I think) (from China) on eBay (see: https://www.ebay.com/itm/5pcs-MC68010P12-MC68010-MOTOROLA-DIP-64/153166489250).
+
+The 10 units I got seem real (https://imgur.com/oEgxsmK). I was able to change the VBR register without crashing the chip with my FPGA test jig (https://imgur.com/ydJ5OCU). The FPGA is supposed to be outputting a 12.5 MHz clock to the chip, but I've been having some power issues with the board, so it might actually be a bit slower.
+
+Program was as follows (assembled with "gcc version 8.3.0 (Gentoo 8.3.0-r1 p1.1)", compile using "m68k-elf-as -mcpu=68010 -o test.o test.s").
+
+```
+.section .text
+.globl _start
+_start:
+    move.l #0x00900000, %a0
+    movec.l %a0, %VBR
+    nop
+    bra.s _start
+```
+
+Monitor output (high is UDS asserted, low is LDS asserted):
+```
+-> % python3.7 monitor.py
+Address: 0x000000: Read Data (high = True, low = True) = 80
+Address: 0x000002: Read Data (high = True, low = True) = 0
+Address: 0x000004: Read Data (high = True, low = True) = 0
+Address: 0x000006: Read Data (high = True, low = True) = 40
+Address: 0x000040: Read Data (high = True, low = True) = 207c
+Address: 0x000042: Read Data (high = True, low = True) = 0090
+Address: 0x000044: Read Data (high = True, low = True) = 0000
+Address: 0x000046: Read Data (high = True, low = True) = 4e7b
+Address: 0x000048: Read Data (high = True, low = True) = 8801
+Address: 0x00004a: Read Data (high = True, low = True) = 4e71
+Address: 0x00004c: Read Data (high = True, low = True) = 4e71
+// note, the following should be 0x60F2, but it's mistyped to cause an invalid address exception
+Address: 0x00004e: Read Data (high = True, low = True) = 60f3 
+Address: 0x000050: Read Data (high = True, low = True) = 0000
+Address: 0x7ffffe: Write Data (high = True, low = True) = 0x0000
+Address: 0x7ffffa: Write Data (high = True, low = True) = 0x0000
+Address: 0x7ffffc: Write Data (high = True, low = True) = 0x60f3
+Address: 0x7ffff8: Write Data (high = True, low = True) = 0x8801
+Address: 0x7ffff4: Write Data (high = True, low = True) = 0x0391
+Address: 0x7ffff6: Write Data (high = True, low = True) = 0x60f3
+Address: 0x7ffff2: Write Data (high = True, low = True) = 0x0000
+Address: 0x7ffff0: Write Data (high = True, low = True) = 0xffe0
+Address: 0x7fffee: Write Data (high = True, low = True) = 0x0045
+Address: 0x7fffec: Write Data (high = True, low = True) = 0x0000
+Address: 0x7fffea: Write Data (high = True, low = True) = 0x0050
+Address: 0x7fffe8: Write Data (high = True, low = True) = 0x0090
+Address: 0x7fffe6: Write Data (high = True, low = True) = 0x0000
+Address: 0x7fffe4: Write Data (high = True, low = True) = 0xfff3
+Address: 0x7fffe0: Write Data (high = True, low = True) = 0x0950
+Address: 0x7fffe2: Write Data (high = True, low = True) = 0x0050
+Address: 0x7fffde: Write Data (high = True, low = True) = 0x0000
+Address: 0x7fffda: Write Data (high = True, low = True) = 0x0000
+Address: 0x7fffd6: Write Data (high = True, low = True) = 0xffff
+Address: 0x7fffd2: Write Data (high = True, low = True) = 0x0043
+Address: 0x7fffd0: Write Data (high = True, low = True) = 0x0000
+Address: 0x7fffce: Write Data (high = True, low = True) = 0x2106
+Address: 0x7fffca: Write Data (high = True, low = True) = 0x0050
+Address: 0x7fffc6: Write Data (high = True, low = True) = 0x270a
+Address: 0x7fffc8: Write Data (high = True, low = True) = 0x0000
+Address: 0x7fffcc: Write Data (high = True, low = True) = 0x800c
+// note the exception vector is 0x90000c: VBR(0x900000) + 0x0c
+Address: 0x90000c: Read Data (high = True, low = True) = ^C
+```
