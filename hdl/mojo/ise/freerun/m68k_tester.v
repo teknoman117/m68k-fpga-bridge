@@ -43,9 +43,11 @@ module m68k_tester(
 wire rst_out_n;
 wire clk_sys;
 wire clk_m68k;
+wire clk_m68k_sample;
 clk_wiz_v3_6 pll (
 	.clk_50_in(clk_50),
 	.clk_50_out(clk_sys),
+	.clk_25_out(clk_m68k_sample),
 	.clk_12_5_out(clk_m68k),
 	.rst_in(~rst_n),
 	.rst_out_n(rst_out_n)
@@ -85,10 +87,6 @@ wire avr_data_out_ready;
 wire avr_data_out_busy;
 wire avr_data_in_ready;
 
-// note: data is sent if "ready" is 1 and "busy" is 0 on any given clock cycle
-assign avr_data_out = 8'h00;
-assign avr_data_ready = 1'd0;
-
 avr_interface #(.CLK_RATE(50000000)) avr (
 	 .clk(clk_sys),
 	 .rst(rst),
@@ -121,10 +119,11 @@ assign m68k_BERR_n = 1'd1;
 // ---- Freerun Test ----
 
 // delay startup by 2^24 sysclk cycles (about 300 milliseconds)
+wire error;
 reg m68k_RESET_in_n_q;
 reg [23:0] startup_delay;
 always @(posedge clk_sys) begin
-	if (rst) begin
+	if (rst | error) begin
 		startup_delay <= 24'd0;
 		m68k_RESET_in_n_q <= 1'd0;
 	end else if (~m68k_RESET_in_n_q) begin
@@ -132,18 +131,45 @@ always @(posedge clk_sys) begin
 	end
 end
 
+// synchronize the m68k bus signals with the FPGA
+reg [23:0] a_sample;
+reg as_sample;
+
+always @(posedge clk_m68k_sample) begin
+	if (~m68k_RESET_out_n) begin
+		a_sample <= 24'd0;
+		as_sample <= 1'd0;
+	end else begin
+		a_sample <= m68k_A; 
+		as_sample <= ~m68k_AS_n;
+	end
+end
+
+// system logic reading synchronized m68k bus signals
+
+// Address Strobe edges
+reg as_edge;
+always @(posedge clk_sys) begin
+	if (rst) begin
+		as_edge <= 1'd0;
+	end else begin
+		as_edge <= as_sample;
+	end
+end
+
+wire as_asserted;
+wire as_deasserted;
+assign as_asserted = ~as_edge & as_sample;
+assign as_deasserted = as_edge & ~as_sample;
+
+// assign leds on the start of the bus cycle
 reg [7:0] leds_q;
-reg as_previous;
-// wait for falling edge of AS
+assign led = leds_q;
 always @(posedge clk_sys) begin
 	if (rst) begin
 		leds_q <= 8'd0;
-		as_previous <= 1'd1;
-	end else begin
-		if (as_previous & ~m68k_AS_n) begin
-			leds_q <= m68k_A[23:16];
-		end 
-		as_previous <= m68k_AS_n;
+	end else if (as_asserted) begin
+		leds_q <= m68k_A[23:16];
 	end
 end
 
@@ -151,6 +177,30 @@ end
 assign m68k_DTACK_n = 1'd0;
 assign m68k_RESET_in = ~m68k_RESET_in_n_q;
 assign m68k_D_out = 16'd0;
-assign led = leds_q;
+
+// validate received address
+reg [23:0] expected_address;
+reg has_started;
+always @(posedge clk_sys) begin
+	// increment expected address after cycle ends
+	if (~m68k_RESET_out_n) begin
+		expected_address <= 24'd0;
+		has_started <= 1'd0;
+	end else if (as_deasserted) begin
+		if (~has_started & expected_address == 24'd6) begin
+			// account for the first 4 reads, reset to zero
+			expected_address <= 24'd0;
+			has_started <= 1'd1;
+		end else
+			expected_address <= expected_address + 2;
+	end
+end
+
+// error if there is an address mismatch
+assign error = as_asserted & (expected_address != a_sample);
+
+// send 'E' on error
+assign avr_data_out = 8'h45;
+assign avr_data_out_ready = error;
 
 endmodule
