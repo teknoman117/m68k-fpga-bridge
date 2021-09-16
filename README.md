@@ -7,4 +7,5 @@ Project to connect an MC68010P12 to an FPGA.
 ## License
 
 Software and HDL: MPL 2.0
+
 PCB Design: CC-BY-SA 4.0
