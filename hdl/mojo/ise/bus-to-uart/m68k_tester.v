@@ -43,9 +43,11 @@ module m68k_tester(
 wire rst_out_n;
 wire clk_sys;
 wire clk_m68k;
+wire clk_m68k_sample;
 clk_wiz_v3_6 pll (
 	.clk_50_in(clk_50),
 	.clk_50_out(clk_sys),
+	.clk_25_out(clk_m68k_sample),
 	.clk_12_5_out(clk_m68k),
 	.rst_in(~rst_n),
 	.rst_out_n(rst_out_n)
@@ -86,8 +88,8 @@ wire avr_data_out_busy;
 wire avr_data_in_ready;
 
 // note: data is sent if "ready" is 1 and "busy" is 0 on any given clock cycle
-assign avr_data_out = 8'h00;
-assign avr_data_ready = 1'd0;
+//assign avr_data_out = 8'h00;
+//assign avr_data_out_ready = 1'd0;
 
 avr_interface #(.CLK_RATE(50000000)) avr (
 	 .clk(clk_sys),
@@ -132,25 +134,88 @@ always @(posedge clk_sys) begin
 	end
 end
 
+// synchronize the m68k bus signals with the FPGA
+reg [23:0] a_sample;
+reg [15:0] d_sample;
+reg [2:0] fc_sample;
+reg as_sample;
+reg lds_sample;
+reg uds_sample;
+reg rw_sample;
+reg bg_sample;
+
+always @(posedge clk_m68k_sample) begin
+	if (~m68k_RESET_out_n) begin
+		a_sample <= 24'hFFFFFF;
+		d_sample <= 16'hFFFF;
+		fc_sample <= 3'h7;
+		as_sample <= 1'd0;
+		lds_sample <= 1'd0;
+		uds_sample <= 1'd0;
+		rw_sample <= 1'd0;
+		bg_sample <= 1'd0;
+	end else begin
+		a_sample <= m68k_A;
+		d_sample <= m68k_D_in;
+		fc_sample <= m68k_FC;
+		as_sample <= ~m68k_AS_n;
+		lds_sample <= ~m68k_LDS_n;
+		uds_sample <= ~m68k_UDS_n;
+		rw_sample <= m68k_RW;
+		bg_sample <= ~m68k_BG_n;
+	end
+end
+
+// system logic reading synchronized m68k bus signals
+
+// Address Strobe edges
+reg as_edge;
+always @(posedge clk_sys) begin
+	if (rst) begin
+		as_edge <= 1'd0;
+	end else begin
+		as_edge <= as_sample;
+	end
+end
+
+wire as_asserted;
+wire as_deasserted;
+assign as_asserted = ~as_edge & as_sample;
+assign as_deasserted = as_edge & ~as_sample;
+
+// DTACK driver
+reg dtack;
+assign m68k_DTACK_n = ~dtack;
+
+always @(posedge clk_sys) begin
+	if (rst) begin
+		dtack <= 1'd0;
+	end else if (as_deasserted) begin
+		// when AS deasserts, we need to deassert DTACK
+		dtack <= 1'd0;
+	end else if (avr_data_in_ready) begin
+		// testing: advance one bus cycle when uart data is received
+		dtack <= 1'd1;
+	end
+end
+
+// assign leds on the start of the bus cycle
 reg [7:0] leds_q;
-reg as_previous;
-// wait for falling edge of AS
+assign led = leds_q;
 always @(posedge clk_sys) begin
 	if (rst) begin
 		leds_q <= 8'd0;
-		as_previous <= 1'd1;
-	end else begin
-		if (as_previous & ~m68k_AS_n) begin
-			leds_q <= m68k_A[23:16];
-		end 
-		as_previous <= m68k_AS_n;
+	end else if (as_asserted) begin
+		leds_q <= m68k_A[8:1];
 	end
 end
 
 // DTACK_n grounded
-assign m68k_DTACK_n = 1'd0;
 assign m68k_RESET_in = ~m68k_RESET_in_n_q;
 assign m68k_D_out = 16'd0;
-assign led = leds_q;
+
+// send uart char on assert
+assign avr_data_out = 8'h41;
+assign avr_data_out_ready = as_asserted;
 
 endmodule
