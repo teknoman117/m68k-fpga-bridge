@@ -118,7 +118,6 @@ assign m68k_IPL_n = 3'h7;
 assign m68k_HALT_in = 1'd0;
 assign m68k_BGACK_n = 1'd1;
 assign m68k_BR_n = 1'd1;
-assign m68k_BERR_n = 1'd1;
 
 // ---- Freerun Test ----
 
@@ -133,6 +132,8 @@ always @(posedge clk_sys) begin
 		{m68k_RESET_in_n_q, startup_delay} <= startup_delay + 1;
 	end
 end
+
+assign m68k_RESET_in = ~m68k_RESET_in_n_q;
 
 // synchronize the m68k bus signals with the FPGA
 reg [23:0] a_sample;
@@ -183,21 +184,79 @@ wire as_deasserted;
 assign as_asserted = ~as_edge & as_sample;
 assign as_deasserted = as_edge & ~as_sample;
 
-// DTACK driver
+// DTACK and BERR driver
 reg dtack;
-assign m68k_DTACK_n = ~dtack;
+reg berr;
+wire cycle_end_success;
+wire cycle_end_failure;
 
 always @(posedge clk_sys) begin
 	if (rst) begin
 		dtack <= 1'd0;
+		berr <= 1'd0;
 	end else if (as_deasserted) begin
-		// when AS deasserts, we need to deassert DTACK
+		// when AS deasserts, we need to deassert DTACK and BERR
 		dtack <= 1'd0;
-	end else if (avr_data_in_ready) begin
-		// testing: advance one bus cycle when uart data is received
+		berr <= 1'd0;
+	end else if (cycle_end_failure) begin
+		// if there's an error, assert BERR
+		berr <= 1'd1;
+	end else if (cycle_end_success) begin
+		// if we succeeded, assert DTACK
 		dtack <= 1'd1;
 	end
 end
+
+assign m68k_DTACK_n = ~dtack;
+assign m68k_BERR_n = ~berr;
+
+// send uart char on assert
+assign avr_data_out = 8'h41;
+assign avr_data_out_ready = as_asserted;
+
+// received data state machine
+localparam RCVR_STATE_IDLE = 4'd1;
+localparam RCVR_STATE_LOAD_BYTE_1 = 4'd2;
+localparam RCVR_STATE_LOAD_BYTE_2 = 4'd4;
+localparam RCVR_STATE_LOAD_BYTE_L = 4'd8;
+
+reg [15:0] m68k_D_out_buffer;
+reg [3:0] RCVR_state;
+
+always @(posedge clk_sys) begin
+	if (rst) begin
+		RCVR_state <= RCVR_STATE_IDLE;
+		m68k_D_out_buffer <= 16'd0;
+	end else if (avr_data_in_ready) begin
+		// we only have state transitions on a data byte being ready
+		if (RCVR_state[0] & (avr_data_in == 8'h42)) begin
+			// transition to load both upper and lower data buffers
+			RCVR_state <= RCVR_STATE_LOAD_BYTE_1;
+		end else if (RCVR_state[0] & (avr_data_in == 8'h4C)) begin
+			// transition to load only the lower data buffer
+			RCVR_state <= RCVR_STATE_LOAD_BYTE_L;
+		end else if (RCVR_state[0] & (avr_data_in == 8'h48)) begin
+			// transition to load only the upper data buffer
+			RCVR_state <= RCVR_STATE_LOAD_BYTE_2;
+		end else if (RCVR_state[1]) begin
+			// load lower data buffer and transition to loading upper buffer
+			m68k_D_out_buffer[7:0] <= avr_data_in;
+			RCVR_state <= RCVR_STATE_LOAD_BYTE_2;
+		end else if (RCVR_state[3]) begin
+			// load lower data buffer and transition back to idle
+			m68k_D_out_buffer[7:0] <= avr_data_in;
+			RCVR_state <= RCVR_STATE_IDLE;
+		end else if (RCVR_state[2]) begin
+			// load upper data buffer and transition back to idle
+			m68k_D_out_buffer[15:8] <= avr_data_in;
+			RCVR_state <= RCVR_STATE_IDLE;
+		end
+	end
+end
+
+assign m68k_D_out = m68k_D_out_buffer;
+assign cycle_end_success = RCVR_state[0] & avr_data_in_ready & (avr_data_in == 8'h44);
+assign cycle_end_failure = RCVR_state[0] & avr_data_in_ready & (avr_data_in == 8'h45);
 
 // assign leds on the start of the bus cycle
 reg [7:0] leds_q;
@@ -209,13 +268,5 @@ always @(posedge clk_sys) begin
 		leds_q <= m68k_A[8:1];
 	end
 end
-
-// DTACK_n grounded
-assign m68k_RESET_in = ~m68k_RESET_in_n_q;
-assign m68k_D_out = 16'd0;
-
-// send uart char on assert
-assign avr_data_out = 8'h41;
-assign avr_data_out_ready = as_asserted;
 
 endmodule
