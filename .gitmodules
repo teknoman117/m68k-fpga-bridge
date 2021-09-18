@@ -1,6 +1,6 @@
-[submodule "kicad/M68K-BREAKOUT"]
-	path = kicad/M68K-BREAKOUT
-	url = ../M68K-BREAKOUT.git
 [submodule "hdl/mojo/ise/mojo-base-project"]
 	path = hdl/mojo/ise/mojo-base-project
 	url = https://github.com/embmicro/mojo-base-project
+[submodule "kicad/M68K-BUS-VOLTAGE-CONVERTER"]
+	path = kicad/M68K-BUS-VOLTAGE-CONVERTER
+	url = ../M68K-BUS-VOLTAGE-CONVERTER.git
