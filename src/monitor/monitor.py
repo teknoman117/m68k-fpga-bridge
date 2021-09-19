@@ -1,45 +1,54 @@
+#!/usr/bin/env python
+
 import serial
 
 interface = serial.Serial('/dev/ttyACM0', 500000, timeout=60)
 
 while (True):
-    # get a cmd value
-    op = interface.read(1)[0]
-    
-    # op[7:4] is the op type, op[3:0] depends on the command
-    if (op & 0xf0) == 0x10:
-        # A operation
-        data = interface.read(3)
-        address = int.from_bytes(data, byteorder='big', signed=False)
-        print("Address: 0x{:06x}".format(address))
+    # read address for bus cycle
+    address_in = interface.read(3)
+    address = int.from_bytes(address_in, byteorder='big', signed=False)
 
-    elif (op & 0xf0) == 0x20:
-        # D operation
-        uds = (op & 0x02) != 0;
-        lds = (op & 0x01) != 0;
-        if (op & 0x04) != 0:
-            # read operation
-            data = input("Read Data (high = {}, low = {}) = ".format(uds, lds))
+    # bus cycle
+    op = int(interface.read(1)[0])
+    data_in = interface.read(2)
+
+    fc = (op >> 0x3) & 0x7
+
+    if (op & 0x04) == 0:
+        # write cycle
+        # low byte cycle
+        if (op & 0x3) == 0x1:
+            print("Address 0x{:06x}: Wrote Byte: 0x{:02x}".format(address, data_in[1]))
+        # high byte cycle
+        elif (op & 0x3) == 0x2:
+            print("Address 0x{:06x}: Wrote Byte: 0x{:02x}".format(address+1, data_in[0]))
+        # word cycle
+        elif (op & 0x3) == 0x3:
+            word = int.from_bytes(data_in, byteorder='big', signed=False)
+            print("Address 0x{:06x}: Wrote Word: 0x{:04x}".format(address, word))
+        # response
+        response = bytes('D', 'ascii')
+    else:
+        # read cycle
+        # low byte cycle
+        if (op & 0x3) == 0x1:
+            data = input("Address 0x{:06x}: Read Byte: ".format(address))
             value = int(data, 16)
-            if (uds and lds):
-                data = value.to_bytes(2, byteorder='big', signed=False)
-                interface.write(data)
-            else:
-                data = value.to_bytes(1, byteorder='big', signed=False)
-                interface.write(data)
+            response = bytearray('L', 'ascii')
+            response.extend(value.to_bytes(1, byteorder='little', signed=False))
+        elif (op & 0x3) == 0x2:
+            data = input("Address 0x{:06x}: Read Byte: ".format(address+1))
+            value = int(data, 16)
+            response = bytearray('H', 'ascii')
+            response.extend(value.to_bytes(1, byteorder='little', signed=False))
+        elif (op & 0x3) == 0x3:
+            data = input("Address 0x{:06x}: Read Word: ".format(address))
+            value = int(data, 16)
+            response = bytearray('B', 'ascii')
+            response.extend(value.to_bytes(2, byteorder='little', signed=False))
+        # response
+        response.extend(bytes('D', 'ascii'))
 
-        else:
-            # write operation
-            print("Write Data (high = {}, low = {}) = ".format(uds, lds))
-            if (uds and lds):
-                data = interface.read(2)
-                value = int.from_bytes(data, byteorder='big', signed=False)
-                print("0x{:04x}".format(value))
-            else:
-                data = interface.read(1)
-                value = int.from_bytes(data, byteorder='big', signed=False)
-                print("0x{:02x}".format(0))
-
-    # write ack
-    interface.write(bytearray([0xaa]))
-
+    # write response
+    interface.write(response)

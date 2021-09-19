@@ -70,7 +70,7 @@ ODDR2 m68k_CLK_buffer(
 
 // M68K data bus control
 wire [15:0] m68k_D_out;
-wire [15:0] m68k_D_in;
+wire [15:0] m68k_D_in = m68k_D;
 assign m68k_D[7:0] = (m68k_RW & ~m68k_LDS_n) ? m68k_D_out[7:0] : 8'dZ;
 assign m68k_D[15:8] = (m68k_RW & ~m68k_UDS_n) ? m68k_D_out[15:8] : 8'dZ;
 
@@ -136,20 +136,20 @@ end
 assign m68k_RESET_in = ~m68k_RESET_in_n_q;
 
 // synchronize the m68k bus signals with the FPGA
-reg [23:0] a_sample;
-reg [15:0] d_sample;
-reg [2:0] fc_sample;
-reg as_sample;
-reg lds_sample;
-reg uds_sample;
-reg rw_sample;
-reg bg_sample;
+reg [23:0] a_sample = 24'h0;
+reg [15:0] d_sample = 16'h0;
+reg [2:0] fc_sample = 3'h0;
+reg as_sample = 1'h0;
+reg lds_sample = 1'h0;
+reg uds_sample = 1'h0;
+reg rw_sample = 1'h0;
+reg bg_sample = 1'h0;
 
 always @(posedge clk_m68k_sample) begin
 	if (~m68k_RESET_out_n) begin
-		a_sample <= 24'hFFFFFF;
-		d_sample <= 16'hFFFF;
-		fc_sample <= 3'h7;
+		a_sample <= 24'h0;
+		d_sample <= 16'h0;
+		fc_sample <= 3'h0;
 		as_sample <= 1'd0;
 		lds_sample <= 1'd0;
 		uds_sample <= 1'd0;
@@ -169,29 +169,88 @@ end
 
 // system logic reading synchronized m68k bus signals
 
-// Address Strobe edges
-reg as_edge;
+// Address and Data Strobe edges
+reg as_edge = 1'd0;
+reg lds_edge = 1'd0;
+reg uds_edge = 1'd0;
 always @(posedge clk_sys) begin
-	if (rst) begin
+	if (~m68k_RESET_out_n) begin
 		as_edge <= 1'd0;
+		lds_edge <= 1'd0;
+		uds_edge <= 1'd0;
 	end else begin
 		as_edge <= as_sample;
+		lds_edge <= lds_sample;
+		uds_edge <= uds_sample;
 	end
 end
 
-wire as_asserted;
-wire as_deasserted;
-assign as_asserted = ~as_edge & as_sample;
-assign as_deasserted = as_edge & ~as_sample;
+wire as_asserted = ~as_edge & as_sample;
+wire lds_asserted = ~lds_edge & lds_sample;
+wire uds_asserted = ~uds_edge & uds_sample;
+wire as_deasserted = as_edge & ~as_sample;
+
+// transmit data state machine
+localparam TX_STATE_IDLE = 7'd1;
+localparam TX_STATE_ADDRESS_3 = 7'd2;
+localparam TX_STATE_ADDRESS_2 = 7'd4;
+localparam TX_STATE_ADDRESS_1 = 7'd8;
+localparam TX_STATE_SIGNALS = 7'd16;
+localparam TX_STATE_DATA_H = 7'd32;
+localparam TX_STATE_DATA_L = 7'd64;
+
+reg [6:0] TX_state = TX_STATE_IDLE;
+always @(posedge clk_sys) begin
+	if (~m68k_RESET_out_n) begin
+		TX_state <= TX_STATE_IDLE;
+	end else if (TX_state[0] & (lds_asserted | uds_asserted)) begin
+		// data phase started, begin transmission
+		TX_state <= TX_STATE_ADDRESS_3;
+	end else if (~avr_data_out_busy) begin
+		// byte was possibly transmitted, advance state
+		if (TX_state[1]) begin
+			TX_state <= TX_STATE_ADDRESS_2;
+		end else if (TX_state[2]) begin
+			TX_state <= TX_STATE_ADDRESS_1;
+		end else if (TX_state[3]) begin
+			TX_state <= TX_STATE_SIGNALS;
+		end else if (TX_state[4]) begin
+			TX_state <= TX_STATE_DATA_H;
+		end else if (TX_state[5]) begin
+			TX_state <= TX_STATE_DATA_L;
+		end else if (TX_state[6]) begin
+			TX_state <= TX_STATE_IDLE;
+		end
+	end
+end
+
+// output data select
+reg [7:0] TX_data;
+wire [7:0] bus_signals = {2'd0, fc_sample, rw_sample, uds_sample, lds_sample};
+always @(*) begin
+	case (TX_state)
+		TX_STATE_IDLE: TX_data = 8'd0;
+		TX_STATE_ADDRESS_3: TX_data = a_sample[23:16];
+		TX_STATE_ADDRESS_2: TX_data = a_sample[15:8];
+		TX_STATE_ADDRESS_1: TX_data = a_sample[7:0];
+		TX_STATE_SIGNALS: TX_data = bus_signals;
+		TX_STATE_DATA_H: TX_data = d_sample[15:8];
+		TX_STATE_DATA_L: TX_data = d_sample[7:0];
+		default: TX_data = 8'd0;
+	endcase
+end
+
+assign avr_data_out = TX_data;
+assign avr_data_out_ready = |TX_state[6:1] & ~avr_data_out_busy;
 
 // DTACK and BERR driver
-reg dtack;
-reg berr;
+reg dtack = 1'd0;
+reg berr = 1'd0;
 wire cycle_end_success;
 wire cycle_end_failure;
 
 always @(posedge clk_sys) begin
-	if (rst) begin
+	if (~m68k_RESET_out_n) begin
 		dtack <= 1'd0;
 		berr <= 1'd0;
 	end else if (as_deasserted) begin
@@ -210,21 +269,17 @@ end
 assign m68k_DTACK_n = ~dtack;
 assign m68k_BERR_n = ~berr;
 
-// send uart char on assert
-assign avr_data_out = 8'h41;
-assign avr_data_out_ready = as_asserted;
-
 // received data state machine
 localparam RCVR_STATE_IDLE = 4'd1;
 localparam RCVR_STATE_LOAD_BYTE_1 = 4'd2;
 localparam RCVR_STATE_LOAD_BYTE_2 = 4'd4;
 localparam RCVR_STATE_LOAD_BYTE_L = 4'd8;
 
-reg [15:0] m68k_D_out_buffer;
-reg [3:0] RCVR_state;
+reg [15:0] m68k_D_out_buffer = 16'd0;
+reg [3:0] RCVR_state = RCVR_STATE_IDLE;
 
 always @(posedge clk_sys) begin
-	if (rst) begin
+	if (~m68k_RESET_out_n) begin
 		RCVR_state <= RCVR_STATE_IDLE;
 		m68k_D_out_buffer <= 16'd0;
 	end else if (avr_data_in_ready) begin
@@ -259,10 +314,10 @@ assign cycle_end_success = RCVR_state[0] & avr_data_in_ready & (avr_data_in == 8
 assign cycle_end_failure = RCVR_state[0] & avr_data_in_ready & (avr_data_in == 8'h45);
 
 // assign leds on the start of the bus cycle
-reg [7:0] leds_q;
+reg [7:0] leds_q = 8'd0;
 assign led = leds_q;
 always @(posedge clk_sys) begin
-	if (rst) begin
+	if (~m68k_RESET_out_n) begin
 		leds_q <= 8'd0;
 	end else if (as_asserted) begin
 		leds_q <= m68k_A[8:1];

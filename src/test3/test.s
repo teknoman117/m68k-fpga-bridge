@@ -8,7 +8,7 @@ _start:
     move.w #0xaaaa, %d0
     move.w _display, %a0
 _loop:
-    move.w %d0, (%a0)
+    move.w %d0, (%a0)+
     not.w %d0
     bra.s _loop
 
